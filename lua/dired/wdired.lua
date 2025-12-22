@@ -28,13 +28,10 @@ function M.enter()
         return
     end
 
-    -- get all files in current directory
     local dir_files = ls.fs_entry.get_directory(dir)
 
-    -- store original filenames with their line numbers
     M.original_filenames = {}
 
-    -- the buffer starts with 2 header lines (directory path and "total used" line)
     local header_lines = 2
     local buf_lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
 
@@ -55,12 +52,10 @@ function M.enter()
         end
     end
 
-    -- make buffer modifiable
     vim.bo.modifiable = true
     vim.bo.readonly = false
     M.is_active = true
 
-    -- show help message
     vim.notify("Wdired mode: <C-c><C-c> to finish, <C-c><C-k> to cancel", vim.log.levels.INFO)
 end
 
@@ -72,12 +67,10 @@ end
 -- validate that only the filename portion of a line was changed
 -- returns: is_valid, new_filename
 local function validate_line_change(original_line, current_line, original_filename)
-    -- if lines are identical, no change
     if original_line == current_line then
         return true, original_filename
     end
 
-    -- get the new filename from the modified line
     local new_filename = extract_filename_from_line(current_line)
 
     -- reconstruct what the line should look like with the new filename
@@ -85,12 +78,9 @@ local function validate_line_change(original_line, current_line, original_filena
     local expected_line =
         original_line:gsub(vim.pesc(original_filename) .. "$", vim.pesc(new_filename))
 
-    -- check if the current line matches what we expect
-    -- (only filename changed, nothing else)
     if current_line == expected_line then
         return true, new_filename
     else
-        -- something other than the filename was modified
         return false, nil
     end
 end
@@ -106,7 +96,6 @@ function M.finish()
     local renames = {}
     local errors = {}
 
-    -- validate header lines weren't modified (lines 1-2)
     local header_lines = 2
     if #buf_lines < header_lines then
         vim.notify("Wdired: Header lines were deleted", vim.log.levels.ERROR)
@@ -114,7 +103,7 @@ function M.finish()
     end
 
     -- detect line reordering by checking if any original filename appears at wrong line
-    local original_filenames_map = {} -- map filename to original line_nr
+    local original_filenames_map = {}
     for _, entry in ipairs(M.original_filenames) do
         original_filenames_map[entry.original_name] = entry.line_nr
     end
@@ -124,11 +113,15 @@ function M.finish()
         if current_line then
             local current_filename = extract_filename_from_line(current_line)
             -- if current filename is from our original list but at wrong line, it was reordered
-            if current_filename and original_filenames_map[current_filename] then
+            if
+                current_filename
+                and current_filename ~= ""
+                and original_filenames_map[current_filename]
+            then
                 if original_filenames_map[current_filename] ~= entry.line_nr then
                     vim.notify(
                         string.format(
-                            "Wdired: Line reordering detected. '%s' moved from line %d to %d. Only rename files, do not reorder lines.",
+                            "Wdired: Line reordering is not allowed.",
                             current_filename,
                             original_filenames_map[current_filename],
                             entry.line_nr
@@ -151,7 +144,6 @@ function M.finish()
         if not current_line then
             table.insert(errors, string.format("Line %d was deleted", line_nr))
         else
-            -- validate that only the filename was changed
             local is_valid, new_name =
                 validate_line_change(original_line, current_line, original_name)
 
@@ -163,7 +155,7 @@ function M.finish()
                         line_nr
                     )
                 )
-            elseif new_name ~= original_name then
+            elseif new_name and new_name ~= original_name then
                 -- validate new filename
                 if new_name == "" then
                     table.insert(errors, string.format("Empty filename on line %d", line_nr))
@@ -224,9 +216,9 @@ function M.finish()
     end
 
     -- check for conflicts
-    -- build lookup maps for O(1) access instead of O(n) nested loops
+    -- build lookup maps for O(1) access
     local new_names = {}
-    local old_path_to_rename = {} -- map old_path -> rename for quick lookup
+    local old_path_to_rename = {}
 
     for _, rename in ipairs(renames) do
         old_path_to_rename[rename.old_path] = rename
@@ -356,7 +348,6 @@ function M.finish()
     M.original_filenames = {}
     vim.bo.modifiable = false
 
-    -- clear marked files since their file objects are now stale after renames
     if #marker.marked_files > 0 then
         marker.marked_files = {}
     end
