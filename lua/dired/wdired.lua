@@ -1,39 +1,40 @@
--- Writable Dired mode - allows editing filenames directly in the buffer
+-- writable dired mode - allows editing filenames directly in the buffer
 local fs = require("dired.fs")
 local ls = require("dired.ls")
 local display = require("dired.display")
+local marker = require("dired.marker")
 
 local M = {}
 
--- Store the original state when entering wdired mode
+-- store the original state when entering wdired mode
 M.original_filenames = {}
 M.is_active = false
 
--- Enter wdired mode - make the dired buffer editable
+-- enter wdired mode - make the dired buffer editable
 function M.enter()
     if vim.bo.filetype ~= "dired" then
-        vim.notify("Wdired: Can only be used in dired buffers", "error")
+        vim.notify("Wdired: Can only be used in dired buffers", vim.log.levels.ERROR)
         return
     end
 
     if M.is_active then
-        vim.notify("Wdired: Already in wdired mode", "warn")
+        vim.notify("Wdired: Already in wdired mode", vim.log.levels.WARN)
         return
     end
 
     local dir = vim.g.current_dired_path
     if not dir then
-        vim.notify("Wdired: No current directory", "error")
+        vim.notify("Wdired: No current directory", vim.log.levels.ERROR)
         return
     end
 
-    -- Get all files in current directory
+    -- get all files in current directory
     local dir_files = ls.fs_entry.get_directory(dir)
 
-    -- Store original filenames with their line numbers
+    -- store original filenames with their line numbers
     M.original_filenames = {}
 
-    -- The buffer starts with 2 header lines (directory path and "total used" line)
+    -- the buffer starts with 2 header lines (directory path and "total used" line)
     local header_lines = 2
     local buf_lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
 
@@ -54,29 +55,50 @@ function M.enter()
         end
     end
 
-    -- Make buffer modifiable
+    -- make buffer modifiable
     vim.bo.modifiable = true
     vim.bo.readonly = false
     M.is_active = true
 
-    -- Show help message
-    vim.notify(
-        "Wdired mode enabled. Edit filenames, then use :DiredWdiredFinish to apply or :DiredWdiredAbort to cancel",
-        "info"
-    )
+    -- show help message
+    vim.notify("Wdired mode: <C-c><C-c> to finish, <C-c><C-k> to cancel", vim.log.levels.INFO)
 end
 
--- Extract filename from a buffer line in wdired mode
--- We reuse the existing display.get_filename_from_listing function
--- which already handles all the edge cases properly
+-- extract filename from a buffer line in wdired mode
 local function extract_filename_from_line(line)
     return display.get_filename_from_listing(line)
 end
 
--- Apply changes - rename files according to buffer edits
+-- validate that only the filename portion of a line was changed
+-- returns: is_valid, new_filename
+local function validate_line_change(original_line, current_line, original_filename)
+    -- if lines are identical, no change
+    if original_line == current_line then
+        return true, original_filename
+    end
+
+    -- get the new filename from the modified line
+    local new_filename = extract_filename_from_line(current_line)
+
+    -- reconstruct what the line should look like with the new filename
+    -- by replacing only the filename portion in the original line
+    local expected_line =
+        original_line:gsub(vim.pesc(original_filename) .. "$", vim.pesc(new_filename))
+
+    -- check if the current line matches what we expect
+    -- (only filename changed, nothing else)
+    if current_line == expected_line then
+        return true, new_filename
+    else
+        -- something other than the filename was modified
+        return false, nil
+    end
+end
+
+-- apply changes - rename files according to buffer edits
 function M.finish()
     if not M.is_active then
-        vim.notify("Wdired: Not in wdired mode", "warn")
+        vim.notify("Wdired: Not in wdired mode", vim.log.levels.WARN)
         return
     end
 
@@ -84,25 +106,42 @@ function M.finish()
     local renames = {}
     local errors = {}
 
-    -- Compare current buffer with original filenames
+    -- compare current buffer with original filenames
     for _, entry in ipairs(M.original_filenames) do
         local line_nr = entry.line_nr
         local original_name = entry.original_name
+        local original_line = entry.original_line
         local current_line = buf_lines[line_nr]
 
         if not current_line then
             table.insert(errors, string.format("Line %d was deleted", line_nr))
         else
-            local new_name = extract_filename_from_line(current_line)
+            -- validate that only the filename was changed
+            local is_valid, new_name =
+                validate_line_change(original_line, current_line, original_name)
 
-            if new_name ~= original_name then
-                -- Validate new filename
+            if not is_valid then
+                table.insert(
+                    errors,
+                    string.format(
+                        "Line %d: Modified non-filename content. Only filenames can be edited in wdired mode.",
+                        line_nr
+                    )
+                )
+            elseif new_name ~= original_name then
+                -- validate new filename
                 if new_name == "" then
                     table.insert(errors, string.format("Empty filename on line %d", line_nr))
                 elseif new_name == "." or new_name == ".." then
-                    table.insert(errors, string.format("Invalid filename '%s' on line %d", new_name, line_nr))
+                    table.insert(
+                        errors,
+                        string.format("Invalid filename '%s' on line %d", new_name, line_nr)
+                    )
                 elseif new_name:match("/") then
-                    table.insert(errors, string.format("Filename cannot contain '/' on line %d", line_nr))
+                    table.insert(
+                        errors,
+                        string.format("Filename cannot contain '/' on line %d", line_nr)
+                    )
                 else
                     table.insert(renames, {
                         line_nr = line_nr,
@@ -116,13 +155,16 @@ function M.finish()
         end
     end
 
-    -- Report errors if any
+    -- report errors if any
     if #errors > 0 then
-        vim.notify("Wdired: Errors found:\n  " .. table.concat(errors, "\n  "), "error")
+        vim.notify(
+            "Wdired: Errors found:\n  " .. table.concat(errors, "\n  "),
+            vim.log.levels.ERROR
+        )
         return
     end
 
-    -- Check for conflicts
+    -- check for conflicts
     local new_names = {}
     for _, rename in ipairs(renames) do
         if new_names[rename.new_name] then
@@ -133,13 +175,13 @@ function M.finish()
                     new_names[rename.new_name],
                     rename.line_nr
                 ),
-                "error"
+                vim.log.levels.ERROR
             )
             return
         end
         new_names[rename.new_name] = rename.line_nr
 
-        -- Check if target already exists (and is not being renamed away)
+        -- check if target already exists (and is not being renamed away)
         if fs.file_exists(rename.new_path) then
             local is_rename_target = false
             for _, other_rename in ipairs(renames) do
@@ -152,22 +194,22 @@ function M.finish()
             if not is_rename_target then
                 vim.notify(
                     string.format("Wdired: File '%s' already exists", rename.new_name),
-                    "error"
+                    vim.log.levels.ERROR
                 )
                 return
             end
         end
     end
 
-    -- Perform renames
+    -- perform renames
     if #renames == 0 then
-        vim.notify("Wdired: No changes to apply", "info")
+        vim.notify("Wdired: No changes to apply", vim.log.levels.INFO)
         M.abort()
         return
     end
 
-    -- Show summary
-    vim.notify(string.format("Wdired: Renaming %d file(s)...", #renames), "info")
+    -- show summary
+    vim.notify(string.format("Wdired: Renaming %d file(s)...", #renames), vim.log.levels.INFO)
 
     local rename_count = 0
     for _, rename in ipairs(renames) do
@@ -181,26 +223,34 @@ function M.finish()
                     rename.old_name,
                     rename.new_name
                 ),
-                "error"
+                vim.log.levels.ERROR
             )
         end
     end
 
-    -- Exit wdired mode and refresh
+    -- exit wdired mode and refresh
     M.is_active = false
     M.original_filenames = {}
     vim.bo.modifiable = false
 
-    -- Refresh the dired buffer
+    -- clear marked files since their file objects are now stale after renames
+    if #marker.marked_files > 0 then
+        marker.marked_files = {}
+    end
+
+    -- refresh the dired buffer
     display.render(vim.g.current_dired_path)
 
-    vim.notify(string.format("Wdired: Successfully renamed %d file(s)", rename_count), "info")
+    vim.notify(
+        string.format("Wdired: Successfully renamed %d file(s)", rename_count),
+        vim.log.levels.INFO
+    )
 end
 
--- Abort wdired mode without applying changes
+-- abort wdired mode without applying changes
 function M.abort()
     if not M.is_active then
-        vim.notify("Wdired: Not in wdired mode", "warn")
+        vim.notify("Wdired: Not in wdired mode", vim.log.levels.WARN)
         return
     end
 
@@ -208,10 +258,10 @@ function M.abort()
     M.original_filenames = {}
     vim.bo.modifiable = false
 
-    -- Refresh the dired buffer to restore original state
+    -- refresh the dired buffer to restore original state
     display.render(vim.g.current_dired_path)
 
-    vim.notify("Wdired: Aborted, no changes applied", "info")
+    vim.notify("Wdired: Aborted, no changes applied", vim.log.levels.INFO)
 end
 
 return M

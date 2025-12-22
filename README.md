@@ -80,11 +80,13 @@ Editing a directory will also open up a buffer, overriding Netrw.
 Similar to Emacs Dired's wdired mode, dired.nvim supports bulk renaming by editing filenames directly in the buffer:
 
 1. Press `E` (or run `:DiredWdiredEnter`) to enter wdired mode
-2. Edit filenames directly in the buffer using normal Vim editing commands
+2. Edit **only the filenames** in the buffer using normal Vim editing commands
+   - The full buffer remains visible for context (permissions, size, dates, etc.)
+   - Only filename changes are allowed - modifications to other parts of the line will be rejected
 3. Press `<C-c><C-c>` (or run `:DiredWdiredFinish`) to apply the changes
 4. Press `<C-c><C-k>` (or run `:DiredWdiredAbort`) to cancel without applying changes
 
-This is particularly useful for bulk renaming operations where you can use Vim's powerful text editing capabilities (macros, search/replace, visual block mode, etc.) to rename multiple files at once.
+This is particularly useful for bulk renaming operations where you can use Vim's powerful text editing capabilities (macros, search/replace, visual block mode, etc.) to rename multiple files at once. The validation ensures you only modify filenames and don't accidentally change permissions or other metadata.
 
 # Commands
 
