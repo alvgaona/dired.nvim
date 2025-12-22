@@ -497,7 +497,7 @@ function M.shell_cmd_marked()
     local marked_files = marker.marked_files
 
     if not next(marked_files) then
-        vim.notify("Dired: No files are currently marked.", "warn")
+        vim.notify("Dired: No files are currently marked.", vim.log.levels.WARN)
         return
     end
 
