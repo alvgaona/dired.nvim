@@ -106,6 +106,41 @@ function M.finish()
     local renames = {}
     local errors = {}
 
+    -- validate header lines weren't modified (lines 1-2)
+    local header_lines = 2
+    if #buf_lines < header_lines then
+        vim.notify("Wdired: Header lines were deleted", vim.log.levels.ERROR)
+        return
+    end
+
+    -- detect line reordering by checking if any original filename appears at wrong line
+    local original_filenames_map = {} -- map filename to original line_nr
+    for _, entry in ipairs(M.original_filenames) do
+        original_filenames_map[entry.original_name] = entry.line_nr
+    end
+
+    for _, entry in ipairs(M.original_filenames) do
+        local current_line = buf_lines[entry.line_nr]
+        if current_line then
+            local current_filename = extract_filename_from_line(current_line)
+            -- if current filename is from our original list but at wrong line, it was reordered
+            if current_filename and original_filenames_map[current_filename] then
+                if original_filenames_map[current_filename] ~= entry.line_nr then
+                    vim.notify(
+                        string.format(
+                            "Wdired: Line reordering detected. '%s' moved from line %d to %d. Only rename files, do not reorder lines.",
+                            current_filename,
+                            original_filenames_map[current_filename],
+                            entry.line_nr
+                        ),
+                        vim.log.levels.ERROR
+                    )
+                    return
+                end
+            end
+        end
+    end
+
     -- compare current buffer with original filenames
     for _, entry in ipairs(M.original_filenames) do
         local line_nr = entry.line_nr
@@ -142,6 +177,30 @@ function M.finish()
                         errors,
                         string.format("Filename cannot contain '/' on line %d", line_nr)
                     )
+                elseif new_name:match("\n") or new_name:match("\r") then
+                    table.insert(
+                        errors,
+                        string.format("Filename cannot contain newlines on line %d", line_nr)
+                    )
+                elseif new_name:match("\0") then
+                    table.insert(
+                        errors,
+                        string.format("Filename cannot contain null bytes on line %d", line_nr)
+                    )
+                elseif new_name ~= vim.trim(new_name) then
+                    table.insert(
+                        errors,
+                        string.format(
+                            "Filename has leading/trailing whitespace on line %d (did you mean '%s'?)",
+                            line_nr,
+                            vim.trim(new_name)
+                        )
+                    )
+                elseif #new_name > 255 then
+                    table.insert(
+                        errors,
+                        string.format("Filename too long on line %d (max 255 bytes)", line_nr)
+                    )
                 else
                     table.insert(renames, {
                         line_nr = line_nr,
@@ -165,8 +224,13 @@ function M.finish()
     end
 
     -- check for conflicts
+    -- build lookup maps for O(1) access instead of O(n) nested loops
     local new_names = {}
+    local old_path_to_rename = {} -- map old_path -> rename for quick lookup
+
     for _, rename in ipairs(renames) do
+        old_path_to_rename[rename.old_path] = rename
+
         if new_names[rename.new_name] then
             vim.notify(
                 string.format(
@@ -180,16 +244,13 @@ function M.finish()
             return
         end
         new_names[rename.new_name] = rename.line_nr
+    end
 
-        -- check if target already exists (and is not being renamed away)
+    -- check if target already exists (and is not being renamed away)
+    for _, rename in ipairs(renames) do
         if fs.file_exists(rename.new_path) then
-            local is_rename_target = false
-            for _, other_rename in ipairs(renames) do
-                if other_rename.old_path == rename.new_path then
-                    is_rename_target = true
-                    break
-                end
-            end
+            -- O(1) lookup instead of O(n) loop
+            local is_rename_target = old_path_to_rename[rename.new_path] ~= nil
 
             if not is_rename_target then
                 vim.notify(
@@ -211,21 +272,83 @@ function M.finish()
     -- show summary
     vim.notify(string.format("Wdired: Renaming %d file(s)...", #renames), vim.log.levels.INFO)
 
+    -- detect swap renames (A->B, B->A) and handle them specially
+    -- by first renaming one to a temp name
+    local processed = {}
     local rename_count = 0
+
     for _, rename in ipairs(renames) do
-        local success = vim.loop.fs_rename(rename.old_path, rename.new_path)
-        if success then
-            rename_count = rename_count + 1
-        else
-            vim.notify(
-                string.format(
-                    "Wdired: Failed to rename '%s' to '%s'",
-                    rename.old_name,
-                    rename.new_name
-                ),
-                vim.log.levels.ERROR
-            )
+        if processed[rename.old_path] then
+            -- already processed as part of a swap
+            goto continue
         end
+
+        -- check if this is part of a swap (target is being renamed to our source)
+        -- O(1) lookup using the map we built earlier
+        local swap_partner = old_path_to_rename[rename.new_path]
+        if not (swap_partner and swap_partner.new_path == rename.old_path) then
+            swap_partner = nil
+        end
+
+        if swap_partner then
+            -- handle swap: A->B and B->A using temp file
+            local temp_name = rename.new_name .. ".wdired_tmp_" .. os.time()
+            local temp_path = fs.join_paths(fs.get_parent_path(rename.old_path), temp_name)
+
+            -- rename A -> temp
+            local success1 = vim.loop.fs_rename(rename.old_path, temp_path)
+            if not success1 then
+                vim.notify(
+                    string.format("Wdired: Failed swap rename '%s' (temp)", rename.old_name),
+                    vim.log.levels.ERROR
+                )
+                goto continue
+            end
+
+            -- rename B -> A
+            local success2 = vim.loop.fs_rename(swap_partner.old_path, swap_partner.new_path)
+            if not success2 then
+                -- rollback: temp -> A
+                vim.loop.fs_rename(temp_path, rename.old_path)
+                vim.notify(
+                    string.format("Wdired: Failed swap rename '%s'", swap_partner.old_name),
+                    vim.log.levels.ERROR
+                )
+                goto continue
+            end
+
+            -- rename temp -> B
+            local success3 = vim.loop.fs_rename(temp_path, rename.new_path)
+            if not success3 then
+                vim.notify(
+                    string.format("Wdired: Failed swap rename '%s' (final)", rename.old_name),
+                    vim.log.levels.ERROR
+                )
+                goto continue
+            end
+
+            rename_count = rename_count + 2
+            processed[rename.old_path] = true
+            processed[swap_partner.old_path] = true
+        else
+            -- normal rename
+            local success = vim.loop.fs_rename(rename.old_path, rename.new_path)
+            if success then
+                rename_count = rename_count + 1
+                processed[rename.old_path] = true
+            else
+                vim.notify(
+                    string.format(
+                        "Wdired: Failed to rename '%s' to '%s'",
+                        rename.old_name,
+                        rename.new_name
+                    ),
+                    vim.log.levels.ERROR
+                )
+            end
+        end
+
+        ::continue::
     end
 
     -- exit wdired mode and refresh
