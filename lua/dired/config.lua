@@ -126,6 +126,9 @@ local CONFIG_SPEC = {
             dired_toggle_icons = "*",
             dired_toggle_hide_details = "(",
             dired_quit = "q",
+            dired_wdired_enter = "E",
+            dired_wdired_finish = "<C-c><C-c>",
+            dired_wdired_abort = "<C-c><C-k>",
         },
         check = function()
             return {}

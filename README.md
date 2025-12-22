@@ -75,6 +75,17 @@ Run the command `:Dired` to open a buffer for your current
 directory. Press `-` in any buffer to open a directory buffer for its parent.
 Editing a directory will also open up a buffer, overriding Netrw.
 
+### Writable Dired (wdired) Mode
+
+Similar to Emacs Dired's wdired mode, dired.nvim supports bulk renaming by editing filenames directly in the buffer:
+
+1. Press `E` (or run `:DiredWdiredEnter`) to enter wdired mode
+2. Edit filenames directly in the buffer using normal Vim editing commands
+3. Press `<C-c><C-c>` (or run `:DiredWdiredFinish`) to apply the changes
+4. Press `<C-c><C-k>` (or run `:DiredWdiredAbort`) to cancel without applying changes
+
+This is particularly useful for bulk renaming operations where you can use Vim's powerful text editing capabilities (macros, search/replace, visual block mode, etc.) to rename multiple files at once.
+
 # Commands
 
 You can use the following commands to add in your custom keybinds.
@@ -107,6 +118,9 @@ You can use the following commands to add in your custom keybinds.
 | DiredToggleIcons     | Toggle the display of filetype icons                    |
 | DiredToggleHideDetails| Toggle hiding/showing file details                      |
 | DiredQuit            | Quit the 'dired' interface                              |
+| DiredWdiredEnter     | Enter writable dired mode for bulk renaming             |
+| DiredWdiredFinish    | Apply changes and exit wdired mode                      |
+| DiredWdiredAbort     | Cancel changes and exit wdired mode                     |
 
 # Keybinding
 
@@ -134,6 +148,9 @@ Inside a directory buffer, there are the following keybindings:
 | **`*`**| Toggle filetype icons.                            |
 | **`(`**| Toggle hiding/showing file details.               |
 | **`q`**| Quit the 'dired' interface.                       |
+| **`E`**| Enter writable dired mode for bulk renaming.      |
+| **`<C-c><C-c>`**| Apply changes in wdired mode.                     |
+| **`<C-c><C-k>`**| Cancel changes in wdired mode.                    |
 
 The default keybinds are given below.
 ```lua
@@ -163,6 +180,9 @@ The default keybinds are given below.
     dired_toggle_colors = "c",
     dired_toggle_hide_details = "(",
     dired_quit = "q",
+    dired_wdired_enter = "E",
+    dired_wdired_finish = "<C-c><C-c>",
+    dired_wdired_abort = "<C-c><C-k>",
 }
 ```
 
