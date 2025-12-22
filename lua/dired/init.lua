@@ -2,6 +2,7 @@
 -- Author: X3eRo0
 local config = require("dired.config")
 local dired = require("dired.dired")
+local wdired = require("dired.wdired")
 
 local M = {}
 
@@ -31,6 +32,9 @@ M.toggle_show_icons = dired.toggle_show_icons
 M.toggle_colors = dired.toggle_colors
 M.toggle_hide_details = dired.toggle_hide_details
 M.preview_highlight_current_line = dired.preview_highlight_current_line
+M.wdired_enter = wdired.enter
+M.wdired_finish = wdired.finish
+M.wdired_abort = wdired.abort
 
 function M.setup(opts)
     -- apply user config
@@ -122,6 +126,9 @@ function M.setup(opts)
     vim.cmd([[command! DiredToggleIcons lua require'dired'.toggle_show_icons()]])
     vim.cmd([[command! DiredToggleHideDetails lua require'dired'.toggle_hide_details()]])
     vim.cmd([[command! DiredQuit lua require'dired'.quit()]])
+    vim.cmd([[command! DiredWdiredEnter lua require'dired'.wdired_enter()]])
+    vim.cmd([[command! DiredWdiredFinish lua require'dired'.wdired_finish()]])
+    vim.cmd([[command! DiredWdiredAbort lua require'dired'.wdired_abort()]])
 
     -- setup keybinds
     local map = vim.api.nvim_set_keymap
@@ -154,6 +161,9 @@ function M.setup(opts)
     map("", "<Plug>(dired_toggle_hide_details)", ":DiredToggleHideDetails<CR>", opt)
     map("", "<Plug>(dired_quit)", ":DiredQuit<CR>", opt)
     map("", "<Plug>(dired_preview_click)", ":lua require('dired').preview_highlight_current_line()<CR>", opt)
+    map("", "<Plug>(dired_wdired_enter)", ":DiredWdiredEnter<CR>", opt)
+    map("", "<Plug>(dired_wdired_finish)", ":DiredWdiredFinish<CR>", opt)
+    map("", "<Plug>(dired_wdired_abort)", ":DiredWdiredAbort<CR>", opt)
 
 
     if vim.fn.mapcheck("-", "n") == "" and not vim.fn.hasmapto("<Plug>(dired_back)", "n") then
@@ -194,6 +204,9 @@ function M.setup(opts)
             map(0, "n", config.get("keybinds").dired_toggle_icons, "<Plug>(dired_toggle_icons)", opt)
             map(0, "n", config.get("keybinds").dired_toggle_hide_details, "<Plug>(dired_toggle_hide_details)", opt)
             map(0, "n", config.get("keybinds").dired_quit, "<Plug>(dired_quit)", opt)
+            map(0, "n", config.get("keybinds").dired_wdired_enter, "<Plug>(dired_wdired_enter)", opt)
+            map(0, "n", config.get("keybinds").dired_wdired_finish, "<Plug>(dired_wdired_finish)", opt)
+            map(0, "n", config.get("keybinds").dired_wdired_abort, "<Plug>(dired_wdired_abort)", opt)
             if config.get("enable_click_preview") then
                 map(0, "n", "<LeftMouse>", "<LeftMouse><Plug>(dired_preview_click)", opt)
             end
