@@ -169,12 +169,12 @@ function M.finish()
                         errors,
                         string.format("Filename cannot contain '/' on line %d", line_nr)
                     )
-                elseif new_name:match("\n") or new_name:match("\r") then
+                elseif new_name:find("\n") or new_name:find("\r") then
                     table.insert(
                         errors,
                         string.format("Filename cannot contain newlines on line %d", line_nr)
                     )
-                elseif new_name:match("\0") then
+                elseif new_name:find("%z") then
                     table.insert(
                         errors,
                         string.format("Filename cannot contain null bytes on line %d", line_nr)
@@ -241,10 +241,15 @@ function M.finish()
     -- check if target already exists (and is not being renamed away)
     for _, rename in ipairs(renames) do
         if fs.file_exists(rename.new_path) then
+            -- Skip if new_path is the same as old_path
+            -- On case-insensitive filesystems, also check lowercase comparison
+            local is_same_file = rename.new_path == rename.old_path
+                or rename.new_path:lower() == rename.old_path:lower()
+
             -- O(1) lookup instead of O(n) loop
             local is_rename_target = old_path_to_rename[rename.new_path] ~= nil
 
-            if not is_rename_target then
+            if not is_same_file and not is_rename_target then
                 vim.notify(
                     string.format("Wdired: File '%s' already exists", rename.new_name),
                     vim.log.levels.ERROR
